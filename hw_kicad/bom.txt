@@ -1,0 +1,19 @@
+tinyprobe BOM
+ATTINY85V-10PU
+mini lipo battery
+1x06 angled 0.1" header
+diode schottky SOD-323 *4 (B5817WS, 2$
+3MM LED:
+red
+green
+yellow
+random button
+resistors 0603:
+100
+560
+1k
+10k
+1M
+capacitors: 1u 0603 * 3
+
+
