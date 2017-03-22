@@ -140,6 +140,8 @@ int open_devfd(char * fn) {
 
 	tcsetattr(fd, TCSANOW, &options);
 	int tmp = TIOCM_DTR;
+	ioctl(fd,TIOCMBIC,&tmp);
+	sleep(1);
 	ioctl(fd,TIOCMBIS,&tmp); /* setting DTR = 1 */
 
 	return fd;
