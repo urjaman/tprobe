@@ -1,8 +1,7 @@
 #include "main.h"
 #include <avr/pgmspace.h>
+#include "probeuart.h"
 
-
-static volatile uint8_t wdt_ticker = 0;
 
 void wdt_init(void) {
 	/* This sequence both turns off WDT reset mode and sets the period to 32ms */
@@ -21,86 +20,6 @@ void wdt_delay(uint8_t ticks) {
 	} while (wdt_ticker != end);
 	return;
 }
-
-static volatile uint8_t button = 0;
-
-#define UART_RXBUFSZ 8
-static uint8_t uart_rxbuf[UART_RXBUFSZ];
-static volatile uint8_t uart_rxwo = 0;
-static uint8_t uart_rxro = 0;
-
-enum probe_s {
-	PROBE_Z,
-	PROBE_0,
-	PROBE_1,
-	PROBE_OFF
-};
-
-static uint8_t probe_state = PROBE_Z;
-static uint8_t trans_tick = 0;
-
-static void probe_check(void) {
-	enum probe_s n_state;
-	if (probe_state == PROBE_OFF) return;
-	if (PINB&_BV(4)) {
-		n_state = PROBE_1;
-	} else {
-		PCMSK &= ~_BV(PCINT4); // disable change detection during purposeful change
-		PORTB |= _BV(4);
-		n_state = PROBE_0;
-		_delay_us(1); // TBD
-		if (PINB&_BV(4)) {
-			PORTB &= ~_BV(4);
-			n_state = PROBE_Z;
-			uint8_t cnt=0; // TBD, need to wait for it to go 0...
-			do {
-				_delay_us(1);
-				if (!(PINB&_BV(4))) break;
-			} while (--cnt);
-		}
-		PORTB &= ~_BV(4);
-		PCMSK |= _BV(PCINT4);
-
-	}
-	if (n_state != probe_state) { /* transition detection */
-		PORTB &= ~_BV(0); // yellow on
-		trans_tick = wdt_ticker;
-	}
-	probe_state = n_state;
-	if (n_state == PROBE_Z) {
-		PORTB |= _BV(1); // green off
-		PORTB |= _BV(2); // red off
-	} else if (n_state == PROBE_0) {
-		PORTB &= ~_BV(2); // red on
-		PORTB |= _BV(1); // green off
-	} else if (n_state == PROBE_1) {
-		PORTB &= ~_BV(1); // green on
-		PORTB |= _BV(2); // red off
-	}
-}
-
-
-ISR(WDT_vect)
-{
-	uint8_t ex_ticker = wdt_ticker;
-	wdt_ticker = ex_ticker + 1;
-	if (probe_state != PROBE_OFF) {
-		if (ex_ticker != trans_tick) PORTB |= _BV(0); // yellow off
-		probe_check();
-	}
-}
-
-
-
-ISR(PCINT0_vect)
-{
-	if ((!(PINB&_BV(3)))&&(!button)) {
-		// uart rx
-	}
-	if (PINB&_BV(3)) button = 0;
-	probe_check();
-}
-
 
 void sys_sleep(uint8_t mode)
 {
