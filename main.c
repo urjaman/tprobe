@@ -1,6 +1,18 @@
 #include "main.h"
 #include <avr/pgmspace.h>
 #include "probeuart.h"
+#include "uart.h"
+#include "adc.h"
+#include <stdio.h>
+
+static int mputch(char c, FILE *stream);
+static FILE mstdout = FDEV_SETUP_STREAM(mputch, NULL, _FDEV_SETUP_WRITE);
+
+static int mputch(char c, FILE *stream) {
+	if (c == '\n') mputch('\r', stream);
+	uart_tx(c);
+	return 0;
+}
 
 
 void wdt_init(void) {
@@ -43,11 +55,15 @@ static uint8_t hex_char(uint8_t nib) {
 }
 
 void hex_out(uint8_t d) {
-//	USI_UART_Transmit_Byte(hex_char(d>>4));
-//	USI_UART_Transmit_Byte(hex_char(d));
-//	USI_UART_Transmit_Byte(' ');
+	uart_tx(hex_char(d>>4));
+	uart_tx(hex_char(d));
+	uart_tx(' ');
 }
 
+uint8_t prb_char(void) {
+	if (!(FLREG&_BV(PROBE_Z))) return '0' + (FLREG&_BV(PROBE_V));
+	return 'Z';
+}
 
 void main(void) {
 	CLKPR = _BV(CLKPCE);
@@ -59,7 +75,18 @@ void main(void) {
 	GIFR |= _BV(PCIF);
 	GIMSK = _BV(PCIE);
 	sei();
+	stdout = &mstdout;
+	uint8_t ntick;
 	for (;;) {
-		wdt_delay(1);
+		uint8_t c1 = prb_char();
+		uint8_t c2 = 0;
+		if (uart_rx_bytes()) c2 = uart_rx();
+		printf("\r%c: %04d/%04d mV; IO=%02X ZU:%d ZD:%d", c1, adc_sample_probe_mV(), adc_get_vcc_mV(), c2, pb_zup, pb_zdn);
+		ntick = wdt_ticker+32;
+		do {
+			sys_sleep(SLEEP_MODE_PWR_DOWN);
+			if (prb_char() != c1) break;
+			if (uart_rx_bytes()) break;
+		} while (ntick != wdt_ticker);
 	}
 }

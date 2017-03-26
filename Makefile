@@ -1,7 +1,7 @@
 # AVR-GCC Makefile
 PROJECT=tprobe
-SOURCES=main.c bootcheck.c probeuart.S
-DEPS=Makefile main.h probeuart.h
+SOURCES=main.c bootcheck.c probeuart.S uart.c adc.c
+DEPS=Makefile main.h probeuart.h uart.h adc.h
 CC=avr-gcc
 OBJCOPY=avr-objcopy
 LD=avr-ld

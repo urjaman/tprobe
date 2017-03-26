@@ -18,4 +18,8 @@ void probe_check(void);
 extern volatile uint8_t uart_rxbuf[UART_RXBUFSZ];
 extern volatile uint8_t uart_rxwo;
 void uart_tx(uint8_t c);
+
+extern volatile uint8_t pb_zup;
+extern volatile uint8_t pb_zdn;
+
 #endif

@@ -7,6 +7,8 @@
 .lcomm trans_tick, 1
 .comm uart_rxbuf, UART_RXBUFSZ
 .comm uart_rxwo, 1
+.comm pb_zup, 1
+.comm pb_zdn, 1
 .section .text
 	.global probe_check
 probe_check:
@@ -17,11 +19,12 @@ probe_check:
 	rjmp 10f
 	cbi _SFR_IO_ADDR(PCMSK), 4
 	sbi _SFR_IO_ADDR(PORTB), 4
-	ldi r25, 8
+	ldi r25, 4
 0:	sbic _SFR_IO_ADDR(PINB), 4
 	rjmp 1f
 	dec r25
 	brne 0b
+	sts pb_zup, r25
 	cbi _SFR_IO_ADDR(PORTB), 4
 	sbi _SFR_IO_ADDR(PCMSK), 4
 	cbi _SFR_IO_ADDR(PORTB), 2 // red on
@@ -31,12 +34,17 @@ probe_check:
 	ori r24, _BV(PROBE_Z)
 	sbi _SFR_IO_ADDR(PORTB), 2 // red off
 	sbi _SFR_IO_ADDR(PORTB), 1 // green off
-	ldi r25, 80
+	sts pb_zup, r25
+	ldi r25, 40
 2:	sbis _SFR_IO_ADDR(PINB), 4
 	rjmp 3f
 	dec r25
 	brne 2b
+	sbi _SFR_IO_ADDR(PCMSK), 4
+	sts pb_zdn, r25
+	rjmp 10f
 3:	sbi _SFR_IO_ADDR(PCMSK), 4
+	sts pb_zdn, r25
 	rjmp 25f
 10:	sbi _SFR_IO_ADDR(PORTB), 2 // red off
 	cbi _SFR_IO_ADDR(PORTB), 1 // green on
