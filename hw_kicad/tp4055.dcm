@@ -1,0 +1,7 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP TP4055
+D TP4055 SOT-23-5 500mA Li-ion charger chip
+$ENDCMP
+#
+#End Doc Library
