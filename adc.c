@@ -24,9 +24,8 @@ void adc_enable(void) {
 
 void adc_select_vcc(void) {
 	ADMUX = 0b1100; // 1.1V ref according to Vcc (=measure VCC)
-	adc_sample();
-	_delay_ms(1);
-	adc_sample();
+	/* 1ms delay with ADC enabled; better just use the ADC for it and sleep... */
+	for (uint8_t n=0;n<10;n++) adc_sample();
 }
 
 void adc_select_probe(void) {
