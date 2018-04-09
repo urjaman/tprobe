@@ -3,12 +3,12 @@
 #include "probeuart.h"
 
 .section .bss
-.comm wdt_ticker, 1
+.comm wdt_ticker, 1, 1
 .lcomm trans_tick, 1
-.comm uart_rxbuf, UART_RXBUFSZ
-.comm uart_rxwo, 1
-.comm pb_zup, 1
-.comm pb_zdn, 1
+.comm uart_rxbuf, UART_RXBUFSZ, 1
+.comm uart_rxwo, 1, 1
+.comm pb_zup, 1, 1
+.comm pb_zdn, 1, 1
 .section .text
 	.global probe_check
 probe_check:
