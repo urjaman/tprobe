@@ -142,13 +142,15 @@ void main(void) {
 			if (c=='0') s.altfn &= ~0x80;
 		}
 		uint8_t b = BUTTON;
-		if (!b) {
+		uint16_t probe = adc_sample_probe_mV();
+		uint16_t vcc = adc_get_vcc_mV();
+		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
 			uart_tx('\r');
 			uart_tx(c1);
 			ss_P(PSTR(": "));
-			u0x(adc_sample_probe_mV(), 4);
+			u0x(probe, 4);
 			uart_tx('/');
-			u0x(adc_get_vcc_mV(), 4);
+			u0x(vcc, 4);
 			ss_P(PSTR(" mV; A="));
 			X02(s.altfn);
 			ss_P(PSTR(" ZU:"));
