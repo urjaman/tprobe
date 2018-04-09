@@ -11,7 +11,7 @@ AVRDUDEMCU=t85
 AVRDUDECMD=avrdude -p $(AVRDUDEMCU) -c atmelice_isp -P usb
 DFLAGS=-DF_CPU=8000000
 CFLAGS=-mmcu=$(MMCU) -Os -g -Wall -W -pipe -std=gnu99 -Wno-main $(DFLAGS) -Tavr25.x
-SERIAL_DEV=/dev/ttyUSB2
+SERIAL_DEV=/dev/ttyUSB0
 
 all: $(PROJECT).hex $(PROJECT).bin size
 
