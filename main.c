@@ -122,6 +122,62 @@ void settings_save(void) {
 }
 #endif
 
+void show_val(uint8_t v, uint8_t d) {
+	/* Happily enough, the LEDs are PORTB0-2 in the logical bit order, just inverted output */
+	PORTB = (PORTB & 0xF8) | ((~v) & 7);
+	wdt_delay(d);
+}
+
+/* Button (-down transition) state tracker */
+static uint8_t bdr = 0;
+static uint8_t bdw = 0;
+static uint8_t bdt[4];
+
+static uint8_t bdo_since(uint8_t off) {
+	uint8_t dt = bdt[off & 3];
+	uint8_t passed = wdt_ticker - dt;
+	return passed;
+}
+
+static void altfn_transition(void) {
+	show_val(7,5);
+	show_val(0,4);
+	show_val(s.altfn,10);
+	show_val(0,2);
+}
+
+void tri_tap_menu(void) {
+	uint8_t waitbase = wdt_ticker;
+	uint8_t mfn = s.altfn & 0x7F;
+	uint8_t sv = 0;
+	int butt = -2;
+	do {
+		uint8_t p = wdt_ticker - waitbase;
+		if (p >= 192) break;
+		if (!sv) sv = mfn;
+		else sv = 0;
+		show_val(sv,2);
+		uint8_t b = BUTTON;
+		if ((b)&&(butt == -1)) {
+			butt = wdt_ticker;
+			waitbase = wdt_ticker;
+		} else if ((!b)&&(butt == -2)) butt = -1;
+		else if ((!b)&&(butt >= 0)) {
+			waitbase = wdt_ticker;
+			mfn = (mfn==7) ? 1 : mfn + 1;
+			butt = -1;
+		} else if ((b)&&(butt >= 0)) {
+			uint8_t bp = wdt_ticker - butt;
+			if (bp > 32) {
+				s.altfn = 0x80 | mfn;
+				show_val(0,10);
+				altfn_transition();
+				return;
+			}
+		}
+	} while (1);
+}
+
 void main(void) {
 	CLKPR = _BV(CLKPCE);
 	CLKPR = 0;
@@ -133,15 +189,65 @@ void main(void) {
 	GIMSK = _BV(PCIE);
 	sei();
 	settings_load();
-	uint8_t ntick;
+
+	uint8_t b = BUTTON;
 	for (;;) {
 		uint8_t c1 = prb_char();
 		if (uart_rx_bytes()) {
 			uint8_t c = uart_rx();
-			if ((c>='1')&&(c<='7')) s.altfn = (c - '0') | 0x80;
-			if (c=='0') s.altfn &= ~0x80;
+			if ((c>='1')&&(c<='7')) {
+				probe_off();
+				s.altfn = (c - '0') | 0x80;
+			}
+			if (c=='0') {
+				probe_on();
+				s.altfn &= ~0x80;
+			}
+
 		}
-		uint8_t b = BUTTON;
+		uint8_t bnew = BUTTON;
+		if ((bnew)&&(!b)) { /* button-down event, record. */
+			bdt[bdw] = wdt_ticker;
+			bdw = (bdw+1) & 3;
+			if (bdr == bdw) { /* avoid overflow, forget oldest */
+				/* also, this buffer very tactically holds 3 down events :P */
+				bdr = (bdr+1) & 3;
+			}
+		}
+		b = bnew;
+		if (bdw != bdr) {
+			if (b) {
+				if (s.altfn & 0x80) {
+					probe_on();
+					bdw = bdr;
+					s.altfn &= ~0x80;
+				} else if (bdo_since(bdw-1) >= 32) {
+					probe_off();
+					s.altfn |= 0x80;
+					bdw = bdr;
+					altfn_transition();
+				}
+			}
+			if (bdo_since(bdr) >= 128) { /* forget stuff before it's so old it confuses us. */
+				bdr = (bdr+1) & 3;
+			} else {
+				uint8_t cnt = (bdw - bdr) & 3;
+				if ((cnt == 3)&&(bdo_since(bdr) < 32)) {
+					probe_off();
+					/* tri-tap detected */
+					tri_tap_menu();
+					if (!(s.altfn & 0x80)) probe_on();
+					bdw = bdr;
+				}
+			}
+		}
+
+		if (s.altfn & 0x80) {
+			/* alt. fn active */
+
+		} else {
+		}
+
 		uint16_t probe = adc_sample_probe_mV();
 		uint16_t vcc = adc_get_vcc_mV();
 		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
@@ -157,10 +263,14 @@ void main(void) {
 			u0x(pb_zup, 0);
 			ss_P(PSTR(" ZD:"));
 			u0x(pb_zdn, 2);
+			/* clr to eol */
+			ss_P(PSTR("\x1B[K"));
 		}
-		ntick = wdt_ticker+32;
+
+		uint8_t ntick = wdt_ticker+32;
 		do {
 			sys_sleep(SLEEP_MODE_PWR_DOWN);
+			if (BUTTON != b) break;
 			if (prb_char() != c1) break;
 			if (uart_rx_bytes()) break;
 		} while (ntick != wdt_ticker);

@@ -1,0 +1,17 @@
+Idea for the 3-LED 1-button UI:
+
+short tap/normal mode: Logic Probe
+	(short tap does nothing, purposefully)
+
+long press: Activate Alternative mode
+	transition signals 7,0,mode,0
+	any press takes back to normal, timeout takes to normal
+	timeout = 30 minutes ish?, reset via activity in the mode
+
+
+tri-tap: Alternative Mode Select (blinks 1-7 as mode number (mode,0,mode,0..))
+	wait ~6s: forget AMS
+	tap: next mode
+	hold: select mode
+
+
