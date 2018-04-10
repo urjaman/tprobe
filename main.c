@@ -78,7 +78,23 @@ void sys_sleep(uint8_t mode)
 	MCUCR = cr; /* sleep_disable */
 }
 
-
+/* Disables WDT and the brownout detector and sleeeps. Forever, or well until a pin changes. */
+void deep_sleep(void)
+{
+	uint8_t cr = MCUCR & 0xC7; // Clear sleep-related bits
+	uint8_t cre2 = cr | _BV(SE) | _BV(BODS) | _BV(SM1);
+	uint8_t cre1 = cre2 | _BV(BODSE);
+	cli();
+	wdt_reset();
+	WDTCR = _BV(WDCE) | _BV(WDE);
+	WDTCR = 0;
+	MCUCR = cre1;
+	MCUCR = cre2;
+	sei();
+	sleep_cpu();
+	MCUCR = cr; /* sleep_disable */
+	wdt_init();
+}
 
 uint8_t prb_char(void) {
 	if (!(FLREG&_BV(PROBE_Z))) return '0' + (FLREG&_BV(PROBE_V));
@@ -244,8 +260,13 @@ void main(void) {
 
 		if (s.altfn & 0x80) {
 			/* alt. fn active */
-
+			if (s.altfn == 0x87) { /* special deep sleep mode ... */
+				if (!b) { /* make sure the button is not pressed when we do it */
+					deep_sleep();
+				}
+			}
 		} else {
+
 		}
 
 		uint16_t probe = adc_sample_probe_mV();
