@@ -157,12 +157,25 @@ void show_val(uint8_t v, uint8_t d) {
 	wdt_delay(d);
 }
 
+static uint24_t activity_timebase;
+void activity(void) {
+	activity_timebase = supertimer();
+}
+
+uint8_t inactivity_check(void) {
+	uint24_t timeout = 3*60*60*32UL; /* Activity timeout 3 hours */
+	uint24_t passed = supertimer() - activity_timebase;
+	if (passed > timeout) return 1;
+	return 0;
+}
+
 static uint24_t altmode_timebase;
 
 void enter_altmode(void) {
+	altmode_timebase = supertimer();
+	activity();
 	s.altfn |= 0x80;
 	probe_off();
-	altmode_timebase = supertimer();
 }
 
 void set_enter_altmode(uint8_t m) {
@@ -188,6 +201,8 @@ uint8_t altmode_check(void) {
 	}
 	return 1;
 }
+
+
 
 /* Button (-down transition) state tracker */
 static uint8_t bdr = 0;
@@ -261,7 +276,7 @@ void main(void) {
 	GIMSK = _BV(PCIE);
 	sei();
 	settings_load();
-
+	uint16_t prev_probe = 0;
 	uint8_t b = BUTTON;
 	for (;;) {
 		uint8_t c1 = prb_char();
@@ -273,10 +288,11 @@ void main(void) {
 			if (c=='0') {
 				exit_altmode();
 			}
-
+			activity();
 		}
 		uint8_t bnew = BUTTON;
 		if ((bnew)&&(!b)) { /* button-down event, record. */
+			activity();
 			bdt[bdw] = wdt_ticker;
 			bdw = (bdw+1) & 3;
 			if (bdr == bdw) { /* avoid overflow, forget oldest */
@@ -308,8 +324,18 @@ void main(void) {
 				}
 			}
 		}
+
+		/* Hit the hay if we've been unused too long. */
+		if (inactivity_check()) deep_sleep();
+
 		uint16_t probe = adc_sample_probe_mV();
 		uint16_t vcc = adc_get_vcc_mV();
+
+		/* Detect voltage level change as activity */
+		int16_t probe_delta = (int16_t)probe - (int16_t)prev_probe;
+		if (probe_delta < 0) probe_delta *= -1;
+		if (probe_delta > 1000) activity();
+		prev_probe = probe;
 
 		if (altmode_check()) {
 			/* alt. fn active */
@@ -326,7 +352,9 @@ void main(void) {
 
 		}
 
+
 		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
+			activity();
 			uart_tx('\r');
 			uart_tx(c1);
 			ss_P(PSTR(": "));
@@ -347,7 +375,10 @@ void main(void) {
 		do {
 			sys_sleep(SLEEP_MODE_PWR_DOWN);
 			if (BUTTON != b) break;
-			if (prb_char() != c1) break;
+			if (prb_char() != c1) {
+				activity();
+				break;
+			}
 			if (uart_rx_bytes()) break;
 		} while (ntick != wdt_ticker);
 	}
