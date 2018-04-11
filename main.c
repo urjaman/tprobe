@@ -313,12 +313,14 @@ void main(void) {
 
 		if (altmode_check()) {
 			/* alt. fn active */
-			if (s.altfn == 0x87) { /* special deep sleep mode ... */
+			if (s.altfn == 0x87) { /* Deep sleep */
 				if (!b) { /* make sure the button is not pressed when we do it */
 					deep_sleep();
 				}
-			} else if (s.altfn == 0x86) {
+			} else if (s.altfn == 0x86) { /* Battery/VCC voltage check */
 				show_val(vcc_lipo_dispval(vcc), 0);
+			} else if (s.altfn == 0x85) { /* 'Flashlight' */
+				show_val(7, 0);
 			}
 		} else {
 
