@@ -114,6 +114,7 @@ void deep_sleep(void)
 }
 
 uint8_t prb_char(void) {
+	if (FLREG&_BV(PROBE_OFF)) return 'N';
 	if (!(FLREG&_BV(PROBE_Z))) return '0' + (FLREG&_BV(PROBE_V));
 	return 'Z';
 }
