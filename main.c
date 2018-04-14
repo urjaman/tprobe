@@ -59,6 +59,9 @@ static void X02(uint8_t d) {
 }
 
 
+static uint8_t diag_en = 0;
+#define DIAG(x) do { if (diag_en) ss_P(PSTR(x)); } while(0)
+
 void wdt_init(void) {
 	/* This sequence both turns off WDT reset mode and sets the period to 32ms */
 	/* Thus preparing WDT to be used as a simple timer later. */
@@ -94,6 +97,7 @@ void sys_sleep(uint8_t mode)
 /* Disables WDT and the brownout detector and sleeeps. Forever, or well until a pin changes. */
 void deep_sleep(void)
 {
+	DIAG("\r\nDeep breath...\r\n");
 	uint8_t cr = MCUCR & 0xC7; // Clear sleep-related bits
 	uint8_t cre2 = cr | _BV(SE) | _BV(BODS) | _BV(SM1);
 	uint8_t cre1 = cre2 | _BV(BODSE);
@@ -158,14 +162,19 @@ void show_val(uint8_t v, uint8_t d) {
 }
 
 static uint24_t activity_timebase;
-void activity(void) {
+static uint8_t activity_type;
+void activity(uint8_t t) {
+	activity_type = t;
 	activity_timebase = supertimer();
 }
 
+uint16_t inactivity_secs(void) {
+	return (supertimer() - activity_timebase) / 32;
+}
+
 uint8_t inactivity_check(void) {
-	uint24_t timeout = 3*60*60*32UL; /* Activity timeout 3 hours */
-	uint24_t passed = supertimer() - activity_timebase;
-	if (passed > timeout) return 1;
+	const uint16_t timeout = 3*60*60; /* Activity timeout 3 hours */
+	if (inactivity_secs() > timeout) return 1;
 	return 0;
 }
 
@@ -173,7 +182,7 @@ static uint24_t altmode_timebase;
 
 void enter_altmode(void) {
 	altmode_timebase = supertimer();
-	activity();
+	activity(5);
 	s.altfn |= 0x80;
 	probe_off();
 }
@@ -276,7 +285,9 @@ void main(void) {
 	GIMSK = _BV(PCIE);
 	sei();
 	settings_load();
+#ifdef PROBE_DELTA
 	uint16_t prev_probe = 0;
+#endif
 	uint8_t b = BUTTON;
 	for (;;) {
 		uint8_t c1 = prb_char();
@@ -288,11 +299,15 @@ void main(void) {
 			if (c=='0') {
 				exit_altmode();
 			}
-			activity();
+			if (c=='d') {
+				diag_en ^= 1;
+			} else {
+				activity(6);
+			}
 		}
 		uint8_t bnew = BUTTON;
 		if ((bnew)&&(!b)) { /* button-down event, record. */
-			activity();
+			activity(1);
 			bdt[bdw] = wdt_ticker;
 			bdw = (bdw+1) & 3;
 			if (bdr == bdw) { /* avoid overflow, forget oldest */
@@ -331,11 +346,13 @@ void main(void) {
 		uint16_t probe = adc_sample_probe_mV();
 		uint16_t vcc = adc_get_vcc_mV();
 
+#ifdef PROBE_DELTA
 		/* Detect voltage level change as activity */
 		int16_t probe_delta = (int16_t)probe - (int16_t)prev_probe;
 		if (probe_delta < 0) probe_delta *= -1;
-		if (probe_delta > 1000) activity();
+		if (probe_delta > 1000) activity(2);
 		prev_probe = probe;
+#endif
 
 		if (altmode_check()) {
 			/* alt. fn active */
@@ -354,7 +371,6 @@ void main(void) {
 
 
 		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
-			activity();
 			uart_tx('\r');
 			uart_tx(c1);
 			ss_P(PSTR(": "));
@@ -367,6 +383,12 @@ void main(void) {
 			u0x(pb_zup, 0);
 			ss_P(PSTR(" ZD:"));
 			u0x(pb_zdn, 2);
+			if (diag_en) {
+				ss_P(PSTR(" IDLE:"));
+				u0x(inactivity_secs(), 5);
+				ss_P(PSTR(" AT:"));
+				u0x(activity_type, 1);
+			}
 			/* clr to eol */
 			ss_P(PSTR("\x1B[K"));
 		}
@@ -376,7 +398,7 @@ void main(void) {
 			sys_sleep(SLEEP_MODE_PWR_DOWN);
 			if (BUTTON != b) break;
 			if (prb_char() != c1) {
-				activity();
+				activity(4);
 				break;
 			}
 			if (uart_rx_bytes()) break;
