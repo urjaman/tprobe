@@ -297,6 +297,7 @@ void main(void) {
 		if (uart_rx_bytes()) {
 			uint8_t c = uart_rx();
 			if ((c>='1')&&(c<='7')) {
+				if (s.altfn & 0x80) exit_altmode();
 				set_enter_altmode(c);
 			}
 			if (c=='0') {
