@@ -196,6 +196,8 @@ void set_enter_altmode(uint8_t m) {
 void exit_altmode(void) {
 	s.altfn &= ~0x80;
 	show_val(0,0);
+	DDRB &= ~_BV(4);
+	PORTB &= ~_BV(4);
 	probe_on();
 }
 
@@ -363,8 +365,21 @@ void main(void) {
 				}
 			} else if (s.altfn == 0x86) { /* Battery/VCC voltage check */
 				show_val(vcc_lipo_dispval(vcc), 0);
-			} else if (s.altfn == 0x85) { /* 'Flashlight' */
+			} else if (s.altfn == 0x85) { /* 'Flashlight' + Drive 1 */
 				show_val(7, 0);
+				PORTB |= _BV(4);
+				DDRB |= _BV(4);
+			} else if (s.altfn == 0x84) { /* 15.625Hz Output */
+				static uint8_t lt;
+				/* Sync to the WDT ticker via sleeping.. */
+				sys_sleep(SLEEP_MODE_PWR_DOWN);
+				uint8_t ct = wdt_ticker;
+				if (lt != ct) {
+					DDRB |= _BV(4);
+					PINB = _BV(4) | _BV(0); /* Toggle */
+					lt = ct;
+				}
+				continue; /* Skip UART TX */
 			}
 		} else {
 
