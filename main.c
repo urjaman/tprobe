@@ -266,16 +266,39 @@ void tri_tap_menu(void) {
 	} while (1);
 }
 
-uint8_t vcc_lipo_dispval(uint16_t vcc) {
-	if (vcc >= 4350) return 7; /* Ext. 4.5+ */
-	if (vcc >= 3950) return 6; /* 4.0V+ Battery */
-	if (vcc >= 3650) return 5; /* 3.7V+ Battery */
-	if (vcc >= 3400) return 4; /* 3.5V ish */
-	if (vcc >= 3200) return 3; /* 3.3V ish */
-	if (vcc >= 2950) return 2; /* 3.0V ish */
-	return 1; /* We're still alive... */
+uint8_t adc_dispval(uint16_t p) {
+	if (p >= 4500) return 7; /* 5V-like */
+	if (p >= 3600) return 6; /* between 3.3V and 5V */
+	if (p >= 2700) return 5; /* 3.3V-like */
+	if (p >= 2000) return 4; /* between 1.8V and 3.3V */
+	if (p >= 1600) return 3; /* 1.8V-like */
+	if (p >= 1000) return 2; /* below 1.8V-like */
+	if (p >= 500) return 1; /* below 1V */
+	return 0; /* near zero... */
 }
 
+uint8_t adc_dispval_lo(uint16_t p) {
+	/* this is just 0.2 step starting from 0.4, but can be adjusted */
+	if (p >= 1600) return 7;
+	if (p >= 1400) return 6;
+	if (p >= 1200) return 5;
+	if (p >= 1000) return 4;
+	if (p >= 800) return 3;
+	if (p >= 600) return 2;
+	if (p >= 400) return 1;
+	return 0;
+}
+
+uint8_t adc_dispval_hi(uint16_t p) {
+	if (p >= 4350) return 7;
+	if (p >= 3950) return 6;
+	if (p >= 3650) return 5;
+	if (p >= 3400) return 4;
+	if (p >= 3200) return 3;
+	if (p >= 2950) return 2;
+	if (p >= 2000) return 1;
+	return 0;
+}
 
 void main(void) {
 	CLKPR = _BV(CLKPCE);
@@ -292,6 +315,7 @@ void main(void) {
 	uint16_t prev_probe = 0;
 #endif
 	uint8_t b = BUTTON;
+	uint8_t uart_tick = 0;
 	for (;;) {
 		uint8_t c1 = prb_char();
 		if (uart_rx_bytes()) {
@@ -344,9 +368,6 @@ void main(void) {
 			}
 		}
 
-		/* Hit the hay if we've been unused too long. */
-		if (inactivity_check()) deep_sleep();
-
 		uint16_t probe = adc_sample_probe_mV();
 		uint16_t vcc = adc_get_vcc_mV();
 
@@ -358,14 +379,48 @@ void main(void) {
 		prev_probe = probe;
 #endif
 
+		uint8_t uart_passed = wdt_ticker - uart_tick;
+		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
+			if (uart_passed >= 16) {
+				uart_tick = wdt_ticker;
+				uart_tx('\r');
+				uart_tx(c1);
+				ss_P(PSTR(": "));
+				u0x(probe, 4);
+				uart_tx('/');
+				u0x(vcc, 4);
+				ss_P(PSTR(" mV; A="));
+				X02(s.altfn);
+				ss_P(PSTR(" ZU:"));
+				u0x(pb_zup, 0);
+				ss_P(PSTR(" ZD:"));
+				u0x(pb_zdn, 2);
+				if (diag_en) {
+					ss_P(PSTR(" IDLE:"));
+					u0x(inactivity_secs(), 5);
+					ss_P(PSTR(" AT:"));
+					u0x(activity_type, 1);
+				}
+				/* clr to eol */
+				ss_P(PSTR("\x1B[K"));
+			}
+		} else {
+			uart_tick = wdt_ticker;
+		}
+
+		/* Hit the hay if we've been unused too long. */
+		if (inactivity_check()) deep_sleep();
+
 		if (altmode_check()) {
 			/* alt. fn active */
-			if (s.altfn == 0x87) { /* Deep sleep */
+			if (s.altfn == 0x87) { /* Deep sleep + Drive 0 */
+				PORTB &= ~_BV(4);
+				DDRB |= _BV(4);
 				if (!b) { /* make sure the button is not pressed when we do it */
 					deep_sleep();
 				}
 			} else if (s.altfn == 0x86) { /* Battery/VCC voltage check */
-				show_val(vcc_lipo_dispval(vcc), 0);
+				show_val(adc_dispval_hi(vcc), 0);
 			} else if (s.altfn == 0x85) { /* 'Flashlight' + Drive 1 */
 				show_val(7, 0);
 				PORTB |= _BV(4);
@@ -380,34 +435,25 @@ void main(void) {
 					PINB = _BV(4) | _BV(0); /* Toggle */
 					lt = ct;
 				}
-				continue; /* Skip UART TX */
+				continue; /* Skip long sleep */
+			} else if ((s.altfn >= 0x81)&&(s.altfn <= 0x83)) {
+				/* Modes 1-3 are representations of the ADC */
+				/* 1: General Purpose / Voltage rail detector (1.8/3.3/5) */
+				/* 2: Low voltages / 1.5V Battery analysis */
+				/* 3: High voltages / Lipo check */
+				if (probe >= (vcc - 20)) { /* Railed, blink 7 */
+					show_val(7, 5);
+					show_val(0, 3);
+					continue;
+				}
+				uint8_t v;
+				if (s.altfn == 0x81) v = adc_dispval(probe);
+				if (s.altfn == 0x82) v = adc_dispval_lo(probe);
+				if (s.altfn == 0x83) v = adc_dispval_hi(probe);
+				show_val(v, 0);
 			}
 		} else {
 
-		}
-
-
-		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
-			uart_tx('\r');
-			uart_tx(c1);
-			ss_P(PSTR(": "));
-			u0x(probe, 4);
-			uart_tx('/');
-			u0x(vcc, 4);
-			ss_P(PSTR(" mV; A="));
-			X02(s.altfn);
-			ss_P(PSTR(" ZU:"));
-			u0x(pb_zup, 0);
-			ss_P(PSTR(" ZD:"));
-			u0x(pb_zdn, 2);
-			if (diag_en) {
-				ss_P(PSTR(" IDLE:"));
-				u0x(inactivity_secs(), 5);
-				ss_P(PSTR(" AT:"));
-				u0x(activity_type, 1);
-			}
-			/* clr to eol */
-			ss_P(PSTR("\x1B[K"));
 		}
 
 		uint8_t ntick = wdt_ticker+32;
