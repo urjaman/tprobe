@@ -266,38 +266,57 @@ void tri_tap_menu(void) {
 	} while (1);
 }
 
-uint8_t adc_dispval(uint16_t p) {
-	if (p >= 4500) return 7; /* 5V-like */
-	if (p >= 3600) return 6; /* between 3.3V and 5V */
-	if (p >= 2700) return 5; /* 3.3V-like */
-	if (p >= 2000) return 4; /* between 1.8V and 3.3V */
-	if (p >= 1600) return 3; /* 1.8V-like */
-	if (p >= 1000) return 2; /* below 1.8V-like */
-	if (p >= 500) return 1; /* below 1V */
-	return 0; /* near zero... */
+const uint16_t adc_table[7] PROGMEM = {
+	4500,
+	3600,
+	2700,
+	2000,
+	1600,
+	1000,
+	500
+};
+
+static uint8_t adc_disptablescan(uint16_t p, const uint16_t* tableP) {
+	uint8_t r = 7;
+	for (;r>0;r--) {
+		uint16_t v = pgm_read_word(tableP++);
+		if (p >= v) return r;
+	}
+	return r;
 }
+
+uint8_t adc_dispval(uint16_t p) {
+	return adc_disptablescan(p, adc_table);
+}
+
+
+const uint16_t adc_table_lo[7] PROGMEM = {
+	/* this is just 0.2 step starting from 0.4, but can be adjusted */
+	1600,
+	1400,
+	1200,
+	1000,
+	 800,
+	 600,
+	 400
+};
 
 uint8_t adc_dispval_lo(uint16_t p) {
-	/* this is just 0.2 step starting from 0.4, but can be adjusted */
-	if (p >= 1600) return 7;
-	if (p >= 1400) return 6;
-	if (p >= 1200) return 5;
-	if (p >= 1000) return 4;
-	if (p >= 800) return 3;
-	if (p >= 600) return 2;
-	if (p >= 400) return 1;
-	return 0;
+	return adc_disptablescan(p, adc_table_lo);
 }
 
+const uint16_t adc_table_hi[7] PROGMEM = {
+	4350,
+	3950,
+	3650,
+	3400,
+	3200,
+	2950,
+	2000
+};
+
 uint8_t adc_dispval_hi(uint16_t p) {
-	if (p >= 4350) return 7;
-	if (p >= 3950) return 6;
-	if (p >= 3650) return 5;
-	if (p >= 3400) return 4;
-	if (p >= 3200) return 3;
-	if (p >= 2950) return 2;
-	if (p >= 2000) return 1;
-	return 0;
+	return adc_disptablescan(p, adc_table_hi);
 }
 
 void main(void) {
@@ -411,6 +430,7 @@ void main(void) {
 		/* Hit the hay if we've been unused too long. */
 		if (inactivity_check()) deep_sleep();
 
+		uint8_t ntick = wdt_ticker+32;
 		if (altmode_check()) {
 			/* alt. fn active */
 			if (s.altfn == 0x87) { /* Deep sleep + Drive 0 */
@@ -451,12 +471,12 @@ void main(void) {
 				if (s.altfn == 0x82) v = adc_dispval_lo(probe);
 				if (s.altfn == 0x83) v = adc_dispval_hi(probe);
 				show_val(v, 0);
+				ntick -= 24;
 			}
 		} else {
 
 		}
 
-		uint8_t ntick = wdt_ticker+32;
 		do {
 			sys_sleep(SLEEP_MODE_PWR_DOWN);
 			if (BUTTON != b) break;
