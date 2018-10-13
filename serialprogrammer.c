@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011,2013,2017 Urja Rannikko <urjaman@gmail.com>
+ * Copyright (C) 2011,2013,2017,2018 Urja Rannikko <urjaman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,8 @@
 #include <string.h>
 #include <inttypes.h>
 #include <sys/ioctl.h>
+
+#define MAX_FRAME 257
 
 struct baudentry {
 	int flag;
@@ -133,8 +135,8 @@ int open_devfd(char * fn) {
 	options.c_cflag &= ~CSIZE;
 	options.c_cflag &= ~CRTSCTS;
 	options.c_cflag |= CS8;
-	options.c_lflag &= ~(ICANON|ECHO|ECHOE|ISIG);
-	options.c_iflag &= ~(IXON | IXOFF | IXANY);
+	options.c_lflag &= ~(ICANON|ECHO|ECHOE|ISIG |IEXTEN);
+	options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL | IGNCR | INLCR);
 	options.c_oflag &= ~OPOST;
 	options.c_cc[VTIME] = 0;
 
@@ -160,7 +162,7 @@ void dev_read(int fd, void*buf, int count) {
 }
 
 void dev_write(int fd, const void*buf, int count) {
-	uint8_t vbuf[count];
+	uint8_t vbuf[MAX_FRAME];
 	int i = write(fd,buf,count);
 	if (i != count) {
 		printf("Write failed\n");
@@ -168,7 +170,12 @@ void dev_write(int fd, const void*buf, int count) {
 	}
 	dev_read(fd,vbuf,count); // this hw echoes everything, suppress echos by verifying what we wrote
 	if (memcmp(vbuf, buf, count)!=0) {
-		printf("Write verify (from echo) failed\n");
+		const uint8_t *sbuf = buf;
+		for (int n=0;n < count; n++) if (sbuf[n] != vbuf[n]) {
+			printf("Write verify from echo failed: n=%d, sent 0x%02X rcvd 0x%02X\n",
+				n, sbuf[n], vbuf[n]);
+			break;
+		}
 		exit(5);
 	}
 }
@@ -184,7 +191,7 @@ void dev_reset(int devfd) {
 int main(int argc, char * argv[]) {
 	int argvbase=1;
 	uint8_t c;
-	int devfd,flashfd,i,datasz,pagesz;
+	int devfd, flashfd, i, datasz, pagesz;
 	if (argc < 3) {
 		printf("Usage: %s flash_file serial_device\n",argv[0]);
 		exit(1);
@@ -206,29 +213,30 @@ int main(int argc, char * argv[]) {
 	}
 	close(flashfd);
 	c = INIT_CMD;
-	dev_write(devfd,&c,1);
-	dev_read(devfd,&c,1);
+	dev_write(devfd, &c, 1);
+	dev_read(devfd, &c, 1);
 	if (c != TAG_CHAR) {
 		printf("Read invalid - 0x%02X\n",(int)c);
 		exit(7);
 	}
-	dev_read(devfd,&c,1);
+	dev_read(devfd, &c, 1);
 	pagesz = c;
 	if (pagesz == 0) pagesz = 256;
 	if (datasz&(pagesz-1)) datasz = (datasz&(~(pagesz-1)))+pagesz;
 	printf("Entered programming mode.\nPagesize = %d. We have %d pages to write.\n",pagesz,datasz/pagesz);
 
-	for (i=0;i<datasz;i+=pagesz) {
-		c = i/pagesz;
-		dev_write(devfd,&c,1);
-		dev_write(devfd,&(buffer[i]),pagesz);
-		dev_read(devfd,&c,1);
+	for (i = 0; i < datasz; i += pagesz) {
+		uint8_t frame[MAX_FRAME];
+		frame[0] = i/pagesz;
+		memcpy(frame+1, buffer+i, pagesz);
+		dev_write(devfd, frame, pagesz+1);
+		dev_read(devfd, &c, 1);
 		if (c != TAG_CHAR) {
-			printf("Read invalid - 0x%02X '%c'\n",(int)c, ((signed char)c)<0x20?'.':c);
+			printf("\nRead invalid - 0x%02X '%c'\n",(int)c, ((signed char)c)<0x20?'.':c);
 			dev_reset(devfd);
 			exit(8);
 		}
-		printf("%03d/%03d\r",(i/pagesz)+1,datasz/pagesz);
+		printf("%03d/%03d\r", (i/pagesz)+1, datasz/pagesz);
 		fflush(stdout);
 	}
 	dev_reset(devfd);
