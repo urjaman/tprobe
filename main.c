@@ -136,6 +136,7 @@ struct settings {
 	uint8_t m;
 	uint8_t l;
 	uint8_t altfn;
+	uint8_t submode;
 	uint8_t c;
 } s;
 
@@ -185,6 +186,7 @@ void enter_altmode(void) {
 	altmode_timebase = supertimer();
 	activity(5);
 	s.altfn |= 0x80;
+	s.submode = 1;
 	probe_off();
 }
 
@@ -195,6 +197,8 @@ void set_enter_altmode(uint8_t m) {
 
 void exit_altmode(void) {
 	s.altfn &= ~0x80;
+	show_val(0,1);
+	show_val(7,1);
 	show_val(0,0);
 	DDRB &= ~_BV(4);
 	PORTB &= ~_BV(4);
@@ -227,11 +231,22 @@ static uint8_t bdo_since(uint8_t off) {
 	return passed;
 }
 
-static void altfn_transition(uint8_t m) {
-	set_enter_altmode(m);
+static void altfn_display(void) {
 	show_val(7,5);
 	show_val(0,4);
 	show_val(s.altfn,10);
+	show_val(0,2);
+}
+
+static void altfn_transition(uint8_t m) {
+	set_enter_altmode(m);
+	altfn_display();
+}
+
+static void altfn_submode(uint8_t n) {
+	altfn_display();
+	show_val(0,2);
+	show_val(n,10);
 	show_val(0,2);
 }
 
@@ -366,8 +381,11 @@ void main(void) {
 		if (bdw != bdr) {
 			if (b) {
 				if (s.altfn & 0x80) {
-					exit_altmode();
-					bdw = bdr;
+					const uint8_t altmode_has_submodes = 0x2; /* 1 << 1, mode 1 has submodes */
+					if ( (!((1 << (s.altfn & 7)) & altmode_has_submodes)) || (bdo_since(bdw-1) >= 16) ) {
+						exit_altmode();
+						bdw = bdr;
+					}
 				} else if (bdo_since(bdw-1) >= 32) {
 					bdw = bdr;
 					altfn_transition(s.altfn);
@@ -376,13 +394,25 @@ void main(void) {
 			if (bdo_since(bdr) >= 128) { /* forget stuff before it's so old it confuses us. */
 				bdr = (bdr+1) & 3;
 			} else {
-				uint8_t cnt = (bdw - bdr) & 3;
-				if ((cnt == 3)&&(bdo_since(bdr) < 32)) {
-					probe_off();
-					/* tri-tap detected */
-					tri_tap_menu();
-					if (!(s.altfn & 0x80)) probe_on();
-					bdw = bdr;
+				if (s.altfn & 0x80) {
+					if ((!b)&&(bdo_since(bdw-1) < 16)) {
+						uint8_t max_submode = 7;
+						switch (s.altfn & 7) {
+							case 1: max_submode = 3; break;
+						}
+						s.submode = (s.submode == max_submode) ? 1 : s.submode + 1;
+						altfn_submode(s.submode);
+						bdw = bdr;
+					}
+				} else {
+					uint8_t cnt = (bdw - bdr) & 3;
+					if ((cnt == 3)&&(bdo_since(bdr) < 32)) {
+						probe_off();
+						/* tri-tap detected */
+						tri_tap_menu();
+						if (!(s.altfn & 0x80)) probe_on();
+						bdw = bdr;
+					}
 				}
 			}
 		}
@@ -410,6 +440,8 @@ void main(void) {
 				u0x(vcc, 4);
 				ss_P(PSTR(" mV; A="));
 				X02(s.altfn);
+				ss_P(PSTR(" S="));
+				X02(s.submode);
 				ss_P(PSTR(" ZU:"));
 				u0x(pb_zup, 0);
 				ss_P(PSTR(" ZD:"));
@@ -456,8 +488,8 @@ void main(void) {
 					lt = ct;
 				}
 				continue; /* Skip long sleep */
-			} else if ((s.altfn >= 0x81)&&(s.altfn <= 0x83)) {
-				/* Modes 1-3 are representations of the ADC */
+			} else if (s.altfn == 0x81) {
+				/* SubModes 1-3 of altfn 1 are representations of the ADC */
 				/* 1: General Purpose / Voltage rail detector (1.8/3.3/5) */
 				/* 2: Low voltages / 1.5V Battery analysis */
 				/* 3: High voltages / Lipo check */
@@ -467,9 +499,11 @@ void main(void) {
 					continue;
 				}
 				uint8_t v;
-				if (s.altfn == 0x81) v = adc_dispval(probe);
-				if (s.altfn == 0x82) v = adc_dispval_lo(probe);
-				if (s.altfn == 0x83) v = adc_dispval_hi(probe);
+				switch (s.submode) {
+					default: v = adc_dispval(probe);    break;
+					case 2:  v = adc_dispval_lo(probe); break;
+					case 3:  v = adc_dispval_hi(probe); break;
+				}
 				show_val(v, 0);
 				ntick -= 24;
 			}
