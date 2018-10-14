@@ -45,6 +45,14 @@ static void u0x(uint16_t v, uint8_t x) {
 	ss(tb);
 }
 
+static void ssx(int32_t v, uint8_t x) {
+	uint8_t tb[12];
+	ltoa(v, (char*)tb, 10);
+	uint8_t l = strlen((char*)tb);
+	while (l<x) { uart_tx(' '); l++; }
+	ss(tb);
+}
+
 
 static uint8_t hex_char(uint8_t nib) {
 	nib &= 0xF;
@@ -427,6 +435,23 @@ void main(void) {
 		if (probe_delta > 1000) activity(2);
 		prev_probe = probe;
 #endif
+		int16_t Udut = 0;
+		int32_t Rdut = 0;
+		if (s.altfn == 0x82) {
+			/* Compute these before the UART section so they can be printed. */
+			PORTB |= _BV(4);
+			const uint16_t Rpu = 33160; /* Hardware dependent, later calibrate. */
+			const uint16_t Rout = 7500; /* Build option, heh. */
+			/* const uint32_t Rpd = 1000000UL; */
+			uint32_t Irpu = (((vcc - probe) * 1000000UL)+(Rpu/2)) / Rpu;
+			uint32_t Ipd = probe /* * 1000000 / Rpd */ ; // This would end up a nop, so disabled
+			uint32_t Idut = (Irpu >= Ipd) ? Irpu - Ipd : 0;
+			uint16_t Urout = ((Idut * Rout) + 500000UL) / 1000000UL;
+			Udut = probe - Urout;
+			Rdut = Idut ? ((Udut * 1000000L) + (Idut/2)) / Idut : 9999999L;
+			if (Rdut > 9999999L) Rdut = 9999999L;
+			if (Udut < 0) Rdut = 0; /* Close to zero, or DUT is not passive. */
+		}
 
 		uint8_t uart_passed = wdt_ticker - uart_tick;
 		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
@@ -451,6 +476,13 @@ void main(void) {
 					u0x(inactivity_secs(), 5);
 					ss_P(PSTR(" AT:"));
 					u0x(activity_type, 1);
+				}
+				if (s.altfn == 0x82) {
+					ss_P(PSTR(" U:"));
+					ssx(Udut, 5);
+					ss_P(PSTR(" mV R: "));
+					ssx(Rdut, 0);
+					ss_P(PSTR(" Ohm"));
 				}
 				/* clr to eol */
 				ss_P(PSTR("\x1B[K"));
@@ -488,6 +520,15 @@ void main(void) {
 					lt = ct;
 				}
 				continue; /* Skip long sleep */
+			} else if (s.altfn == 0x82) { /* Diode test w/ pullup */
+				uint8_t v;
+				if (Udut < -100) v = 0; /* huh? */
+				else if (Udut < 100) v = 4; /* red */
+				else if (Udut < 1000) v = 2; /* green */
+				else if (Udut < (int16_t)(vcc - 500)) v = 1; /* orange */
+				else v = 0; /* nothing */
+				show_val(v, 0);
+				ntick -= 24;
 			} else if (s.altfn == 0x81) {
 				/* SubModes 1-3 of altfn 1 are representations of the ADC */
 				/* 1: General Purpose / Voltage rail detector (1.8/3.3/5) */

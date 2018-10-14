@@ -45,10 +45,10 @@ uint16_t adc_sample_probe_mV(void) {
 	uint16_t prb = adc_sample();
 	adc_select_vcc();
 	uint16_t ivcc = adc_sample();
+	adc_disable();
 	uint16_t vcc = 1126000UL / (uint32_t)ivcc;
 	adc_vcc = vcc;
 	uint16_t mV = ((uint32_t)prb * (uint32_t)vcc) / 1024;
-	adc_disable();
 	return mV;
 }
 
