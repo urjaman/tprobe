@@ -1,0 +1,57 @@
+
+Circuit:
+Vcc -\
+     |
+    Rpu (20-50k?)
+     |
+ADC--*-*-- 7.5kOhm -\
+       |           |
+     1MOhm        DUT
+       |           |
+GND ---*------------
+
+
+We would like to do two things:
+- compute the voltage at DUT
+  - use this for diode test like:  
+    < 0.1V = shorted (red), continuity test or failed diode
+   0.1 .. 1.0 V = diode-like (green)
+   1.0 .. (Vcc - 0.5 or so) = LED-like (orange)
+   "railed" = nothing connected (leds off)
+- compute the effective resistance of DUT for output on serial port
+
+
+We will need to calibrate Rpu, but other than that i think we can 
+follow this route:
+- calculate Rpu current from Vcc and ADC voltages
+- calculate 1Mohm current from ADC voltage
+- substract 1Mohm current from Rpu current to get 7.5k and DUT current
+- calculate 7.5k voltage at this current
+- substract 7.5k voltage from ADC voltage to get voltage at DUT.
+- and then you can get Rdut just by Udut / Idut
+
+To calibrate Rpu, the simplest situation is with DUT=0R, thus
+putting 7.5k and 1M in parallel.
+
+This makes it be:
+I = ADC / 7444
+Rpu = (Vcc - ADC) / I
+
+This comes up with 33160 ohm for me now, we'll test with that.
+
+Units: resistances in ohms, voltages in mV, currents in nA
+N.B. the actual code was later modified for currents in 10 nA units
+
+Irpu = ((Vcc - ADC) * 1000000) / Rpu
+Imohm = ADC * 1000000 / 1000000 ... so just ADC :P
+Idut = Irpu - Imohm
+Ur75 = (Idut * 7500) / 1000000
+Udut = ADC - Ur75
+Rdut = (Udut * 1000000) / Idut
+ 
+
+Upper edge trim / vcc calibration:
+Irpu = ADC;
+Urpu = (Irpu * Rpu) / 1000000
+Vcc = ADC + Urpu
+
