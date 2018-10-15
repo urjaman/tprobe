@@ -37,22 +37,21 @@ static void ss(const unsigned char * str) {
 	}
 }
 
-static void u0x(uint16_t v, uint8_t x) {
-	uint8_t tb[6];
-	utoa(v, (char*)tb, 10);
+static void ssx_pad(int32_t v, uint8_t x, uint8_t c) {
+	uint8_t tb[12];
+	ltoa(v, (char*)tb, 10);
 	uint8_t l = strlen((char*)tb);
-	while (l<x) { uart_tx('0'); l++; }
+	while (l<x) { uart_tx(c); l++; }
 	ss(tb);
 }
 
 static void ssx(int32_t v, uint8_t x) {
-	uint8_t tb[12];
-	ltoa(v, (char*)tb, 10);
-	uint8_t l = strlen((char*)tb);
-	while (l<x) { uart_tx(' '); l++; }
-	ss(tb);
+	ssx_pad(v, x, ' ');
 }
 
+static void u0x(uint16_t v, uint8_t x) {
+	ssx_pad(v, x, '0');
+}
 
 static uint8_t hex_char(uint8_t nib) {
 	nib &= 0xF;
