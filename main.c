@@ -265,6 +265,19 @@ static void altfn_submode(uint8_t n) {
 	show_val(0,2);
 }
 
+const uint8_t max_submodes[7] PROGMEM = {
+	3, 2, 7, 1, 1, 1, 1
+};
+
+static uint8_t get_max_submode(void) {
+	return pgm_read_byte(max_submodes + (s.altfn & 7) - 1);
+}
+
+void inc_submode(void) {
+	uint8_t max_submode = get_max_submode();
+	s.submode = (s.submode == max_submode) ? 1 : s.submode + 1;
+}
+
 void tri_tap_menu(void) {
 	uint8_t waitbase = wdt_ticker;
 	uint8_t mfn = s.altfn & 0x7F;
@@ -372,6 +385,61 @@ const uint8_t ocr1c_tab[7] PROGMEM = {
 	250-1, 250-1, 250-1, 250-1, 244-1, 80-1, 16-1
 };
 
+int numeric_entry(const PGM_P prompt, int dflt) {
+	uint8_t edl = 0;
+	uint8_t nl = 0;
+	uint8_t neg = 0;
+	uint16_t v = 0;
+	ss_P(prompt);
+	uint8_t waitbase = wdt_ticker;
+	for (;;) {
+		uint8_t p = wdt_ticker - waitbase;
+		if ((p >= 192)||(BUTTON)) {
+			if (p >= 192) {
+				ss_P(PSTR("- Timeout"));
+			}
+			ss_P(PSTR("\r\n"));
+			return dflt;
+		}
+		if (uart_rx_bytes()) {
+			waitbase = wdt_ticker;
+			uint8_t c = uart_rx();
+			if (c == '\r') {
+				wdt_delay(2);
+				if (uart_rx_bytes()) c = uart_rx();
+				if (c != '\n') uart_tx('\n');
+				if (!nl) return dflt;
+				if ( ((neg)&&(v > 32768)) || ((!neg)&&(v > 32767)) ) return dflt;
+				if (neg) return v * -1;
+				return v;
+			} else if ((edl == 0)&&(c == '-')) {
+				neg = 1;
+				edl++;
+			} else if ((nl < 5)&&(v < 3277)&&(c >= '0')&&(c <= '9')) {
+				v = v * 10 + (c - '0');
+				edl++;
+				nl++;
+			} else if ((c == '\b')||(c == 127)) {
+				if (edl) {
+					if (c == '\b') ss_P(PSTR(" \b"));
+					else ss_P(PSTR("\b \b"));
+					edl--;
+					if (nl) {
+						nl--;
+						v = v / 10;
+					}
+					if (!edl) neg = 0;
+				} else {
+					if (c == '\b') uart_tx(pgm_read_byte(prompt + strlen_P(prompt) - 1));
+				}
+			} else {
+				ss_P(PSTR("\b \b"));
+			}
+		}
+		sys_sleep(SLEEP_MODE_PWR_DOWN);
+	}
+}
+
 void main(void) {
 	CLKPR = _BV(CLKPCE);
 	CLKPR = 0;
@@ -398,11 +466,18 @@ void main(void) {
 			if ((c>='1')&&(c<='7')) {
 				if (s.altfn & 0x80) exit_altmode();
 				set_enter_altmode(c);
-			}
-			if (c=='0') {
+			} else if (c=='0') {
 				exit_altmode();
+			} else if (c=='s') {
+				inc_submode();
+			} else if (c=='n') {
+				int r = numeric_entry(PSTR("\r\nNumeric Test: "), -555);
+				ss_P(PSTR("Parsed: "));
+				ssx(r, 0);
+				ss_P(PSTR("\r\n"));
 			}
-			if (c=='d') {
+
+			if (c=='d') { /* This is special so that diag toggle is not activity */
 				diag_en ^= 1;
 			} else {
 				activity(6);
@@ -422,8 +497,7 @@ void main(void) {
 		if (bdw != bdr) {
 			if (b) {
 				if (s.altfn & 0x80) {
-					const uint8_t altmode_has_submodes = 0xE; /* 1 << 1, mode 1 has submodes */
-					if ( (!((1 << (s.altfn & 7)) & altmode_has_submodes)) || (bdo_since(bdw-1) >= 16) ) {
+					if ( (get_max_submode() == 1) || (bdo_since(bdw-1) >= 16) ) {
 						exit_altmode();
 						bdw = bdr;
 					}
@@ -437,12 +511,7 @@ void main(void) {
 			} else {
 				if (s.altfn & 0x80) {
 					if ((!b)&&(bdo_since(bdw-1) < 16)) {
-						uint8_t max_submode = 7;
-						switch (s.altfn & 7) {
-							case 1: max_submode = 3; break;
-							case 2: max_submode = 2; break;
-						}
-						s.submode = (s.submode == max_submode) ? 1 : s.submode + 1;
+						inc_submode();
 						altfn_submode(s.submode);
 						bdw = bdr;
 					}
