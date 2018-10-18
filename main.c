@@ -94,8 +94,7 @@ void sys_sleep(uint8_t mode)
 	uint8_t cre = cr | _BV(SE);
 	cli();
 	// Clear sets mode = idle
-	//if (!TCCR0B) 
-	cre |= mode; // Idle needed if TCCR0B to let timer run
+	if (!TCCR1) cre |= mode; // Idle needed if TCCR1 to let timer run
 	MCUCR = cre; /* sleep enable and set mode */
 	sei();
 	sleep_cpu();
@@ -129,11 +128,13 @@ uint8_t prb_char(void) {
 
 void probe_off(void) {
 	FLREG |= _BV(PROBE_OFF);
+	PCMSK &= ~_BV(PCINT4);
 }
 
 void probe_on(void) {
 	if (FLREG & _BV(PROBE_OFF)) {
 		cli();
+		PCMSK |= _BV(PCINT4);
 		FLREG &= ~_BV(PROBE_OFF);
 		probe_check();
 		sei();
@@ -212,6 +213,8 @@ void exit_altmode(void) {
 	show_val(0,1);
 	show_val(7,1);
 	show_val(0,0);
+	TCCR1 = 0;
+	GTCCR = 0;
 	DDRB &= ~_BV(4);
 	PORTB &= ~_BV(4);
 	probe_on();
@@ -346,6 +349,29 @@ uint8_t adc_dispval_hi(uint16_t p) {
 	return adc_disptablescan(p, adc_table_hi);
 }
 
+/* PWM settings:
+ * 1- 15.625 Hz - / 2048 / 250 (only used for PWM side)
+ * 2-    250 Hz - / 128  / 250
+ * 3-   1000 Hz - / 32   / 250
+ * 4-   4000 Hz - / 8    / 250
+ * 5-  32768 Hz - / 1    / 244 (... err 32786.8852...not like we were accurate anyways)
+ * 6- 100000 Hz - / 1    / 80
+ * 7- 500000 Hz - / 1    / 16
+ */
+
+const uint8_t tccr1_tab[7] PROGMEM = {
+	_BV(CTC1) | 0xC,
+	_BV(CTC1) | 0x8,
+	_BV(CTC1) | 0x6,
+	_BV(CTC1) | 0x4,
+	_BV(CTC1) | 0x1,
+	_BV(CTC1) | 0x1,
+	_BV(CTC1) | 0x1,
+};
+const uint8_t ocr1c_tab[7] PROGMEM = {
+	250-1, 250-1, 250-1, 250-1, 244-1, 80-1, 16-1
+};
+
 void main(void) {
 	CLKPR = _BV(CLKPCE);
 	CLKPR = 0;
@@ -396,7 +422,7 @@ void main(void) {
 		if (bdw != bdr) {
 			if (b) {
 				if (s.altfn & 0x80) {
-					const uint8_t altmode_has_submodes = 0x6; /* 1 << 1, mode 1 has submodes */
+					const uint8_t altmode_has_submodes = 0xE; /* 1 << 1, mode 1 has submodes */
 					if ( (!((1 << (s.altfn & 7)) & altmode_has_submodes)) || (bdo_since(bdw-1) >= 16) ) {
 						exit_altmode();
 						bdw = bdr;
@@ -518,17 +544,34 @@ void main(void) {
 				show_val(7, 0);
 				PORTB |= _BV(4);
 				DDRB |= _BV(4);
-			} else if (s.altfn == 0x84) { /* 15.625Hz Output */
-				static uint8_t lt;
-				/* Sync to the WDT ticker via sleeping.. */
-				sys_sleep(SLEEP_MODE_PWR_DOWN);
-				uint8_t ct = wdt_ticker;
-				if (lt != ct) {
+			} else if (s.altfn == 0x83) { /* 15.625Hz Output */
+				if (s.submode == 1) {
+					static uint8_t lt;
+					/* Sync to the WDT ticker via sleeping.. */
+					GTCCR = 0;
+					TCCR1 = 0;
+					sys_sleep(SLEEP_MODE_PWR_DOWN);
+					uint8_t ct = wdt_ticker;
+					if (lt != ct) {
+						DDRB |= _BV(4);
+						PINB = _BV(4) | _BV(0); /* Toggle */
+						lt = ct;
+					}
+					continue; /* Skip long sleep */
+				} else {
 					DDRB |= _BV(4);
-					PINB = _BV(4) | _BV(0); /* Toggle */
-					lt = ct;
+					PORTB &= ~_BV(2);
+					uint8_t c = pgm_read_byte(ocr1c_tab + (s.submode -1));
+					OCR1C = c;
+					OCR1B = (c+1) >> 1;
+					GTCCR |= _BV(PWM1B);
+					GTCCR |= _BV(COM1B1);
+					TCCR1 = pgm_read_byte(tccr1_tab + (s.submode - 1));
+					PINB = _BV(0);
+					ntick = wdt_ticker + 18 - (s.submode * 2);
 				}
-				continue; /* Skip long sleep */
+			} else if (s.altfn == 0x84) {
+
 			} else if (s.altfn == 0x82) { /* Diode test w/ pullup */
 				uint8_t v;
 				if (s.submode == 2) { /* Calibration */
