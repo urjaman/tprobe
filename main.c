@@ -394,8 +394,8 @@ int numeric_entry(const PGM_P prompt, int dflt) {
 	uint8_t waitbase = wdt_ticker;
 	for (;;) {
 		uint8_t p = wdt_ticker - waitbase;
-		if ((p >= 192)||(BUTTON)) {
-			if (p >= 192) {
+		if ((p >= 224)||(BUTTON)) {
+			if (p >= 224) {
 				ss_P(PSTR("- Timeout"));
 			}
 			ss_P(PSTR("\r\n"));
@@ -440,6 +440,80 @@ int numeric_entry(const PGM_P prompt, int dflt) {
 	}
 }
 
+static void setup_pwm(uint8_t tccr, uint8_t ocr1c, uint8_t output) {
+	OCR1C = ocr1c;
+	OCR1B = (ocr1c+1) >> 1;
+	if (output) {
+		//GTCCR |= _BV(PWM1B);
+		GTCCR |= _BV(COM1B0);
+		DDRB |= _BV(4);
+	} else {
+		GTCCR &= ~_BV(COM1B0);
+		//GTCCR &= ~_BV(PWM1B);
+		DDRB &= ~_BV(4);
+	}
+	TCCR1 = tccr;
+}
+
+static uint16_t measure_osc(void) {
+	uint16_t sum = 0;
+	setup_pwm(0xC, 255, 0);
+	wdt_delay(1);
+	uint8_t base = TCNT1;
+	for (uint8_t n = 0; n < 4; n++) {
+		wdt_delay(1);
+		uint8_t nc = TCNT1;
+		uint8_t diff = nc - base;
+		sum += diff;
+		base = nc;
+	}
+	return sum;
+}
+
+void calibrate_osc(void) {
+	probe_off();
+	setup_pwm(_BV(CTC1) | 0x6, 125 -1, 1);
+	while (uart_rx_bytes()) uart_rx();
+	ss_P(PSTR("\r\nMeasure output and type it in:"));
+	int hz = numeric_entry(PSTR("\r\nHz: "), 1000);
+	if (hz == 1000) goto exit;
+	if (hz >  1050) goto exit;
+	if (hz <   950) goto exit;
+	ss_P(PSTR("Calibrating.."));
+	uint16_t now = measure_osc();
+	uint16_t target = ((now * 1000UL) + (hz/2)) / hz;
+	uint8_t max_loops = 5;
+	int prev_diff = target - now;
+	uint8_t prev_cal = OSCCAL;
+	do {
+		int diff = target - now;
+		int8_t adjust = diff / 5;
+		if (!adjust) adjust = diff / 3;
+		if (adjust >  16) adjust =  16;
+		if (adjust < -16) adjust = -16;
+		if ((!adjust)||(max_loops == 1)) {
+			if (abs(prev_diff) < abs(diff)) {
+				OSCCAL = prev_cal;
+			}
+			break;
+		}
+		prev_diff = diff;
+		prev_cal = OSCCAL;
+		uint8_t next_cal = prev_cal + adjust;
+		if ((prev_cal & 0x80) ^ (next_cal & 0x80)) {
+			if (next_cal & 0x80) next_cal += 40;
+			else next_cal -= 40;
+		}
+		OSCCAL = next_cal;
+		now = measure_osc();
+		uart_tx('.');
+	} while (--max_loops);
+	ss_P(PSTR("Done\r\n"));
+exit:
+	exit_altmode();
+}
+
+
 void main(void) {
 	CLKPR = _BV(CLKPCE);
 	CLKPR = 0;
@@ -475,6 +549,8 @@ void main(void) {
 				ss_P(PSTR("Parsed: "));
 				ssx(r, 0);
 				ss_P(PSTR("\r\n"));
+			} else if (c=='c') {
+				calibrate_osc();
 			}
 
 			if (c=='d') { /* This is special so that diag toggle is not activity */
@@ -628,14 +704,8 @@ void main(void) {
 					}
 					continue; /* Skip long sleep */
 				} else {
-					DDRB |= _BV(4);
 					PORTB &= ~_BV(2);
-					uint8_t c = pgm_read_byte(ocr1c_tab + (s.submode -1));
-					OCR1C = c;
-					OCR1B = (c+1) >> 1;
-					GTCCR |= _BV(PWM1B);
-					GTCCR |= _BV(COM1B1);
-					TCCR1 = pgm_read_byte(tccr1_tab + (s.submode - 1));
+					setup_pwm(pgm_read_byte(tccr1_tab + (s.submode -1)), pgm_read_byte(ocr1c_tab + (s.submode -1)), 1);
 					PINB = _BV(0);
 					ntick = wdt_ticker + 18 - (s.submode * 2);
 				}
