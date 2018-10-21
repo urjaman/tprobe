@@ -85,55 +85,92 @@ WDT_vect:
 	reti
 
 
-// 6 cyc wake-up 
+// 6 cyc wake-up
 // 4 from sleep / upto 4 for running instruction
 // 4 interrupt entry
 // 2 rjmp here
 	.global PCINT0_vect
 PCINT0_vect: // 6 - 16
-	push r2 
+	push r2
 	in r2, _SFR_IO_ADDR(SREG) // 9
 	push r24
 	push r25
 	push r30
 	push r31		// 17
 	sbic _SFR_IO_ADDR(BTNREG), BTNBIT
-	rjmp 10f		
+	rjmp 10f
 	sbic _SFR_IO_ADDR(PINB), 3
 	rjmp 10f
 	// 21 - 31
 	// UART RX
 	cbi _SFR_IO_ADDR(PCMSK), 3 // disable change detection for Rx
 	// 22
-	ldi r31, 2
-0:	dec r31
-	brne 0b
+	ldi r25, 8 // 23
+
+	ldi r31, 2 // 24
+	nop // 25
+	// okay, we will not actually arrive at the following line at 35, but we have adjusted
+	// r31 such that the delay takes care of that.
+
+	// 104 - 114 or 35 - 45
+1:	// ((98 - 35) - 5) / 5 = 11.6, or 11 and 3.
+	adiw r24, 0
 	nop
-	ldi r25, 8
-	// 30 - 40
-1:	ldi r31, 21 // .1481...
-2:	dec r31
-	brne 2b
+	subi r31, -11 // allow pre-loading an offset in r31 for the first loop
+		      // the delay loops leave r31 at zero
+// This is the bit-transition-aware delay mechanism (labels 1xx)
+	sbic _SFR_IO_ADDR(PINB), 3 // pick correct wait while value loop
+	rjmp 110f
+	nop
+	// 3
+100:	sbic _SFR_IO_ADDR(PINB), 3 // wait while zero
+	rjmp 120f
+	dec r31
+	brne 100b
+	rjmp 130f // 5
+
+110:	sbis _SFR_IO_ADDR(PINB), 3 // wait while one
+	rjmp 120f
+	dec r31
+	brne 110b
+	rjmp 130f
+
+// transition detected 2 to 6 cycles ago, so say 4 cycles, 1 for lsr, (35 - 4 - 1) / 3 = 10 loops
+120:	ldi r31, 10
+121:	dec r31
+	brne 121b
+130:
+	// 98 - 108
 	lsr r24
 	sbic _SFR_IO_ADDR(PINB), 3
 	ori r24, 0x80
 	dec r25
 	brne 1b
-	ldi r31, 11
-3:	dec r31
-	brne 3b
+	// 4 cycles past the mid-point of last bit
+	ldi r30, lo8(uart_rxbuf) // 1
+	ldi r31, hi8(uart_rxbuf) // 2
+	lds r25, uart_rxwo // 4
+	add r30, r25 // 5
+	brcc 4f // 6
+	inc r31 // 7
+4:	st Z, r24
+	inc r25 // 8
+	andi r25, (UART_RXBUFSZ-1) // 9
+
+	// this is a tiny version of the bit-change-aware delay loop, that
+	// instead just exits on the transition, and we do not wait if
+	// the bit is already 1 (no transition expected).
+	ldi r31, 13
+5:	sbic _SFR_IO_ADDR(PINB), 3
+	rjmp 6f
+	dec r31
+	brne 5b
+6:
+
 	sbi _SFR_IO_ADDR(PCMSK), 3 // changing shooould be done ;p (or if later, we want the ISR)
 	sbis _SFR_IO_ADDR(PINB), 3
 	rjmp 8f
-	ldi r30, lo8(uart_rxbuf)
-	ldi r31, hi8(uart_rxbuf)
-	lds r25, uart_rxwo
-	add r30, r25
-	brcc 4f
-	inc r31
-4:	st Z, r24
-	inc r25
-	andi r25, (UART_RXBUFSZ-1)
+
 	sts uart_rxwo, r25
 	rjmp 12f // we make a hasty exit so we're ready for next byte in time, hopefully
 8:	sbi _SFR_IO_ADDR(BTNREG), BTNBIT
