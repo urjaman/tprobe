@@ -533,6 +533,7 @@ void main(void) {
 	uint16_t cal_sum = 0;
 	uint16_t cal_sum2 = 0;
 	uint8_t cal_state = 0;
+	const uint8_t uart_period = 16;
 	for (;;) {
 		uint8_t c1 = prb_char();
 		if (uart_rx_bytes()) {
@@ -558,6 +559,7 @@ void main(void) {
 			} else {
 				activity(6);
 			}
+			uart_tick = wdt_ticker - (uart_period - 4);
 		}
 		uint8_t bnew = BUTTON;
 		if ((bnew)&&(!b)) { /* button-down event, record. */
@@ -635,7 +637,7 @@ void main(void) {
 
 		uint8_t uart_passed = wdt_ticker - uart_tick;
 		if ((!b)&&(vcc>=4200)) { /* toggle UART usage based on power source present. */
-			if (uart_passed >= 16) {
+			if (uart_passed >= uart_period) {
 				uart_tick = wdt_ticker;
 				uart_tx('\r');
 				uart_tx(c1);
@@ -647,10 +649,12 @@ void main(void) {
 				X02(s.altfn);
 				ss_P(PSTR(" S="));
 				X02(s.submode);
-				ss_P(PSTR(" ZU:"));
-				u0x(pb_zup, 0);
-				ss_P(PSTR(" ZD:"));
-				u0x(pb_zdn, 2);
+				if (c1 != 'N') {
+					ss_P(PSTR(" ZU:"));
+					u0x(pb_zup, 0);
+					ss_P(PSTR(" ZD:"));
+					u0x(pb_zdn, 2);
+				}
 				if (diag_en) {
 					ss_P(PSTR(" IDLE:"));
 					u0x(inactivity_secs(), 5);
