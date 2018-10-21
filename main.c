@@ -385,24 +385,25 @@ const uint8_t ocr1c_tab[7] PROGMEM = {
 	250-1, 250-1, 250-1, 250-1, 244-1, 80-1, 16-1
 };
 
-int numeric_entry(const PGM_P prompt, int dflt) {
+int numeric_entry(const PGM_P prompt, int dflt, int timeout_sec) {
 	uint8_t edl = 0;
 	uint8_t nl = 0;
 	uint8_t neg = 0;
 	uint16_t v = 0;
 	ss_P(prompt);
-	uint8_t waitbase = wdt_ticker;
+	uint24_t waitbase = supertimer();
+	uint16_t to = timeout_sec * 32;
 	for (;;) {
-		uint8_t p = wdt_ticker - waitbase;
-		if ((p >= 224)||(BUTTON)) {
-			if (p >= 224) {
+		uint16_t p = supertimer() - waitbase;
+		if ((p >= to)||(BUTTON)) {
+			if (p >= to) {
 				ss_P(PSTR("- Timeout"));
 			}
 			ss_P(PSTR("\r\n"));
 			return dflt;
 		}
 		if (uart_rx_bytes()) {
-			waitbase = wdt_ticker;
+			waitbase = supertimer();
 			uint8_t c = uart_rx();
 			if (c == '\r') {
 				wdt_delay(2);
@@ -444,12 +445,12 @@ static void setup_pwm(uint8_t tccr, uint8_t ocr1c, uint8_t output) {
 	OCR1C = ocr1c;
 	OCR1B = (ocr1c+1) >> 1;
 	if (output) {
-		//GTCCR |= _BV(PWM1B);
-		GTCCR |= _BV(COM1B0);
+		GTCCR |= _BV(PWM1B);
+		GTCCR |= _BV(COM1B1);
 		DDRB |= _BV(4);
 	} else {
-		GTCCR &= ~_BV(COM1B0);
-		//GTCCR &= ~_BV(PWM1B);
+		GTCCR &= ~_BV(COM1B1);
+		GTCCR &= ~_BV(PWM1B);
 		DDRB &= ~_BV(4);
 	}
 	TCCR1 = tccr;
@@ -472,10 +473,9 @@ static uint16_t measure_osc(void) {
 
 void calibrate_osc(void) {
 	probe_off();
-	setup_pwm(_BV(CTC1) | 0x6, 125 -1, 1);
+	setup_pwm(_BV(CTC1) | 0x6, 250 -1, 1);
 	while (uart_rx_bytes()) uart_rx();
-	ss_P(PSTR("\r\nMeasure output and type it in:"));
-	int hz = numeric_entry(PSTR("\r\nHz: "), 1000);
+	int hz = numeric_entry(PSTR("\r\nMeasure output and type it in:\r\nHz: "), 1000, 60);
 	if (hz == 1000) goto exit;
 	if (hz >  1050) goto exit;
 	if (hz <   950) goto exit;
@@ -545,7 +545,7 @@ void main(void) {
 			} else if (c=='s') {
 				inc_submode();
 			} else if (c=='n') {
-				int r = numeric_entry(PSTR("\r\nNumeric Test: "), -555);
+				int r = numeric_entry(PSTR("\r\nNumeric Test: "), -555, 5);
 				ss_P(PSTR("Parsed: "));
 				ssx(r, 0);
 				ss_P(PSTR("\r\n"));
