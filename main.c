@@ -512,6 +512,7 @@ exit:
 }
 
 
+void main(void) __attribute__((OS_main));
 void main(void) {
 	CLKPR = _BV(CLKPCE);
 	CLKPR = 0;
