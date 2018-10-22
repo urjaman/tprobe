@@ -445,12 +445,10 @@ static void setup_pwm(uint8_t tccr, uint8_t ocr1c, uint8_t output) {
 	OCR1C = ocr1c;
 	OCR1B = (ocr1c+1) >> 1;
 	if (output) {
-		GTCCR |= _BV(PWM1B);
-		GTCCR |= _BV(COM1B1);
+		GTCCR = _BV(PWM1B) | _BV(COM1B1);
 		DDRB |= _BV(4);
 	} else {
-		GTCCR &= ~_BV(COM1B1);
-		GTCCR &= ~_BV(PWM1B);
+		GTCCR = 0;
 		DDRB &= ~_BV(4);
 	}
 	TCCR1 = tccr;
