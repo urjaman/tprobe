@@ -266,7 +266,7 @@ static void altfn_submode(uint8_t n) {
 }
 
 const uint8_t max_submodes[7] PROGMEM = {
-	3, 2, 7, 1, 1, 1, 1
+	3, 3, 7, 1, 1, 1, 1
 };
 
 static uint8_t get_max_submode(void) {
@@ -717,7 +717,7 @@ void main(void) {
 
 			} else if (s.altfn == 0x82) { /* Diode test w/ pullup */
 				uint8_t v;
-				if (s.submode == 2) { /* Calibration */
+				if (s.submode == 3) { /* Calibration */
 					if ((cal_state < 4) && (probe > 1500)) {
 						cal_state = 0;
 						cal_sum = 0;
@@ -780,6 +780,15 @@ void main(void) {
 					} else {
 						v = 1 + (cal_state - 5);
 					}
+				} else if (s.submode == 2) {
+					/* Ohm order of magnitude readout */
+					if      (Rdut >= 7500000L) v = 7;
+					else if (Rdut >=  750000L) v = 6;
+					else if (Rdut >=   75000L) v = 5;
+					else if (Rdut >=    7500)   v = 4;
+					else if (Rdut >=     750)   v = 3;
+					else if (Rdut >=      75)   v = 2;
+					else v = 1;
 				} else {
 					if (Udut < -100) v = 0; /* huh? */
 					else if (Udut < 100) v = 4; /* red */
