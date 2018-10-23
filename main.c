@@ -146,6 +146,7 @@ struct settings {
 	uint8_t l;
 	uint8_t altfn;
 	uint8_t submode;
+	uint8_t pwm_spd;
 	uint16_t Rpu;
 	uint16_t vcc_cal;
 	uint8_t c;
@@ -158,7 +159,7 @@ void settings_load(void) {
 	s.altfn = 1;
 	s.vcc_cal = 256;
 	s.Rpu = 33160;
-
+	s.pwm_spd = 1; /* 250 Hz by default */
 }
 
 #if 0
@@ -266,7 +267,7 @@ static void altfn_submode(uint8_t n) {
 }
 
 const uint8_t max_submodes[7] PROGMEM = {
-	3, 3, 7, 1, 1, 1, 1
+	3, 3, 7, 7, 1, 1, 1
 };
 
 static uint8_t get_max_submode(void) {
@@ -441,10 +442,11 @@ int numeric_entry(const PGM_P prompt, int dflt, int timeout_sec) {
 	}
 }
 
-static void setup_pwm(uint8_t tccr, uint8_t ocr1c, uint8_t output) {
+/* PWM: 0= no output, 1-7 = pwm/8 duty cycle output */
+static void setup_timer(uint8_t tccr, uint8_t ocr1c, uint8_t pwm) {
 	OCR1C = ocr1c;
-	OCR1B = (ocr1c+1) >> 1;
-	if (output) {
+	if (pwm) {
+		OCR1B = ((ocr1c+1) * pwm) / 8;
 		GTCCR = _BV(PWM1B) | _BV(COM1B1);
 		DDRB |= _BV(4);
 	} else {
@@ -456,7 +458,7 @@ static void setup_pwm(uint8_t tccr, uint8_t ocr1c, uint8_t output) {
 
 static uint16_t measure_osc(void) {
 	uint16_t sum = 0;
-	setup_pwm(0xC, 255, 0);
+	setup_timer(0xC, 255, 0);
 	wdt_delay(1);
 	uint8_t base = TCNT1;
 	for (uint8_t n = 0; n < 4; n++) {
@@ -471,7 +473,7 @@ static uint16_t measure_osc(void) {
 
 void calibrate_osc(void) {
 	probe_off();
-	setup_pwm(_BV(CTC1) | 0x6, 250 -1, 1);
+	setup_timer(_BV(CTC1) | 0x6, 250 -1, 4);
 	while (uart_rx_bytes()) uart_rx();
 	int hz = numeric_entry(PSTR("\r\nMeasure output and type it in:\r\nHz: "), 1000, 60);
 	if (hz == 1000) goto exit;
@@ -692,7 +694,8 @@ void main(void) {
 				show_val(7, 0);
 				PORTB |= _BV(4);
 				DDRB |= _BV(4);
-			} else if (s.altfn == 0x83) { /* 15.625Hz Output */
+			} else if (s.altfn == 0x83) { /* 15.625Hz Output / 50/50 duty PWMs */
+				s.pwm_spd = s.submode - 1;
 				if (s.submode == 1) {
 					static uint8_t lt;
 					/* Sync to the WDT ticker via sleeping.. */
@@ -708,12 +711,15 @@ void main(void) {
 					continue; /* Skip long sleep */
 				} else {
 					PORTB &= ~_BV(2);
-					setup_pwm(pgm_read_byte(tccr1_tab + (s.submode -1)), pgm_read_byte(ocr1c_tab + (s.submode -1)), 1);
+					setup_timer(pgm_read_byte(tccr1_tab + s.pwm_spd), pgm_read_byte(ocr1c_tab + s.pwm_spd), 4);
 					PINB = _BV(0);
 					ntick = wdt_ticker + 18 - (s.submode * 2);
 				}
-			} else if (s.altfn == 0x84) {
-
+			} else if (s.altfn == 0x84) { /* Variable duty cycle PWM */
+				PORTB &= ~_BV(2);
+				setup_timer(pgm_read_byte(tccr1_tab + s.pwm_spd), pgm_read_byte(ocr1c_tab + s.pwm_spd), s.submode);
+				PINB = _BV(0);
+				ntick = wdt_ticker + 18 - (s.submode * 2);
 			} else if (s.altfn == 0x82) { /* Diode test w/ pullup */
 				uint8_t v;
 				if (s.submode == 3) { /* Calibration */
