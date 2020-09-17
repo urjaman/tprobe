@@ -1,17 +1,105 @@
-Idea for the 3-LED 1-button UI:
+The 3-LED 1-button UI:
+
+Leds are Red, Green and Orange (or Yellow).
+They're read in binary as Red=4, Green=2, Orange=1 to
+make 3-bit numbers (0-7).
 
 short tap/normal mode: Logic Probe
-	(short tap does nothing, purposefully)
+	(short tap in normal mode does nothing, purposefully)
+	Logic Probe means:
+		no lights: high-Z
+		red: zero logic level
+		green: one logic level
+		orange: activity (logic level is toggling)
 
 long press: Activate Alternative mode
 	transition signals 7,0,mode,0
-	any press takes back to normal, timeout takes to normal
-	timeout = 30 minutes ish?, reset via activity in the mode
+	if no submodes (modes 5 to 7):
+		any press takes back to normal
+	if submodes (modes 1 to 4):
+		short tap is next submode, a press back to normal
+	exiting altmode is a short flash of 7
+	submode is always 1 on entry to altmode
+	indicating submode transition is 7,0,altmode,0,submode,0
+	timeout is about 2 hours (except for battery check which is 5s. and deep sleep which is forever).
 
-
+(tri-tap: 3 fast taps)
 tri-tap: Alternative Mode Select (blinks 1-7 as mode number (mode,0,mode,0..))
 	wait ~6s: forget AMS
 	tap: next mode
 	hold: select mode
 
+Alt Modes:
+	Mode 1: Voltmeter (ADC Readout)
+		Submode 1 - Wide Range:
+			0: under 0.5V
+			1: 0.5V to 1.0V
+			2: 1.0V to 1.6V
+			3: 1.6V to 2.0V (1.8V)
+			4: 2.0V to 2.7V
+			5: 2.7V to 3.6V (3.3V)
+			6: 3.6V to 4.5V
+			7: 4.5V to Vcc  (5V)
+		Submode 2 - Low Range:
+			0: under 0.4V
+			1: 0.4V to 0.6V
+			2: 0.6V to 0.8V
+			3: 0.8V to 1.0V
+			4: 1.0V to 1.2V
+			5: 1.2V to 1.4V
+			6: 1.4V to 1.6V
+			7: over 1.6V (if blinking, over/near Vcc)
+		Submode 3 - High Range:
+			0: under 2.0V
+			1: 2.0V  to 2.95V
+			2: 2.95V to 3.2V
+			3: 3.2V  to 3.4V 
+			4: 3.4V  to 3.65V
+			5: 3.65V to 3.95V (good lipo)
+			6: 3.95V to 4.35V (full lipo)
+			7: over 4.35V
+	Mode 2:	Diode / Resistance Test (output pullup)
+		Submode 1: Diode
+			Red: Shorted
+			Green: Diode (under 1V)
+			Orange: High Volt Diode (1V to Vcc - 0.5V, eg. LED)
+			black: nothing connected / threshold near or over Vcc
+		Submode 2: Resistance (idea: magnitude 10^n ohms)
+			1: 0 - 74 ohm
+			2: 75 to 749 ohm
+			3: 750 to 7499 ohm
+			4: 7.5k to ~75k	
+			5: 75k to ~750k	
+			6: 750k to ~7.5M
+			7: over 7.5M
+		Submode 3: Calibration
+			You just hold the output to the ground for a sec (until
+			the lights no blinky anymore). and then let go,
+			and then the device returns to submode 1 after a bit of
+			blinkenlights (during which the output must be disconnected from anything).
+	Mode 3: PWM output with 50/50 Duty - variable frequency
+		Submode 1: 15.625 Hz
+			2: 250 Hz
+			3: 1kHz
+			4: 4kHz
+			5: about 32.768 kHz
+			6: 100 kHz
+			7: 500 kHz
+	Mode 4: PWM output variable Duty
+		Frequency is from the last used submode in Mode 3.
+		Duty cycle is submode / 8. (from 1/8 to 7/8).
 
+	Mode 5: All LEDs ("Flashlight") + Output 1
+		(no submodes)
+
+	Mode 6: Battery or Vcc Voltage
+		(lights same as ADC high range).
+		(no submodes)
+
+	Mode 7: Deep Sleep + Output 0
+		(no submodes)
+
+If the device is not going to be used in a while (so alt-mode memory is irrelevant),
+recommended action is to use the deep sleep mode -- this will 
+sleep until the button is pressed, instead of the automatic sleep mode
+which might be woken up from by noise on the input line too.
